@@ -1745,6 +1745,7 @@ const GEMINI_MODELS = [
 ];
 
 let currentModelId = localStorage.getItem('vp_ai_model') || 'gemini-3-flash-preview';
+let aiKeyReady = false;
 
 // ── 2. MÃ HÓA XOR ─────────────────────────────────────────────
 // Tạo key mới: encodeApiKey('AIzaSyXXX', 'ccmn2025') trong console
@@ -2435,6 +2436,36 @@ function validateDuongAI(aiDuong) {
 }
 
 // ── Model selector ───────────────────────────────────────
+
+function toggleAI() {
+  var panel = document.getElementById('ai-panel');
+  var isOpen = panel.classList.toggle('open');
+  if (isOpen) { updateAiKeyBar(); buildModelSelect(); fillSimilarSelect(); }
+}
+function switchAiTab(tab) {
+  ['parse','search','similar'].forEach(function(t) {
+    document.getElementById('tab-'+t).classList.toggle('active', t===tab);
+    document.getElementById('sec-'+t).classList.toggle('active', t===tab);
+  });
+}
+function saveAiKey() {
+  var key = document.getElementById('ai-key-input').value.trim();
+  if (!key) { toast('Nhap Gemini API key'); return; }
+  saveApiKey(key); aiKeyReady = true;
+  toast('Da luu Gemini API key!'); updateAiKeyBar();
+}
+function updateAiKeyBar() {
+  var key = getApiKey();
+  var bar = document.getElementById('ai-key-bar');
+  var inp = document.getElementById('ai-key-input');
+  if (!bar || !inp) return;
+  if (key) {
+    bar.style.background='#D1FAE5'; bar.style.borderBottomColor='#6EE7B7';
+    inp.value = key.slice(0,8)+'xxxxxxxx'; inp.placeholder='Key da luu'; aiKeyReady=true;
+  } else {
+    bar.style.background='#FEF3C7'; inp.value=''; inp.placeholder='AIzaSy...'; aiKeyReady=false;
+  }
+}
 function buildModelSelect() {
   const sel = document.getElementById("ai-model-select");
   if (!sel) return;
