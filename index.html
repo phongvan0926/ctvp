@@ -1730,108 +1730,100 @@ function doPrint() {
 // ══════════════════════════════════════════════════════════
 
 // ── AI Engine: Groq (miễn phí, 30 req/phút) ──────────────
-const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/models/";
+// ============================================================
+//  GEMINI API MODULE — Standalone, Copy-Paste Ready
+// ============================================================
+
+// ── 1. CẤU HÌNH ─────────────────────────────────────────────
+const GEMINI_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models/';
 
 const GEMINI_MODELS = [
-  { id: "gemini-2.0-flash",             label: "Gemini 3 Flash",         badge: "Mặc định · Nhanh · 1M ctx",       rpd: "Cao nhất" },
-  { id: "gemini-2.5-pro-exp-03-25",    label: "Gemini 3.1 Pro Preview",  badge: "Reasoning mạnh nhất · 64k", rpd: "50–100/ngày" },
-  { id: "gemini-2.5-flash-preview-05-20", label: "Gemini 2.5 Flash",     badge: "Ổn định · Free rộng",           rpd: "250/ngày" },
-  { id: "gemini-2.5-pro-preview-06-05",label: "Gemini 2.5 Pro",         badge: "Cân bằng chất lượng",        rpd: "100/ngày" },
+  { id: 'gemini-3.1-pro-preview', label: '3.1 Pro Preview', badge: 'Mạnh nhất · reasoning sâu',  rpd: '50-100/ngày', free: false },
+  { id: 'gemini-3-flash-preview', label: '3 Flash',         badge: 'Mặc định · Nhanh · 1M ctx',  rpd: 'Cao nhất',    free: true  },
+  { id: 'gemini-2.5-flash',       label: '2.5 Flash',       badge: 'Ổn định · free tier lớn',    rpd: '250/ngày',    free: true  },
+  { id: 'gemini-2.5-pro',         label: '2.5 Pro',         badge: 'Cân bằng chất lượng/tốc độ', rpd: '100/ngày',    free: true  },
 ];
 
-let currentModelId = localStorage.getItem("vp_ai_model") || "gemini-2.0-flash";
-function getGeminiURL() {
-  return GEMINI_BASE + currentModelId + ":generateContent";
-}
-const DEFAULT_AI_KEY = "AIzaSyCGwORbJLk1hm2XjCCr3N3urFJYJrioCi8"; // Gemini 2.5 Flash
-let aiKeyReady = false;
-let _lastParsed = null; // lưu kết quả parse gần nhất
+let currentModelId = localStorage.getItem('vp_ai_model') || 'gemini-3-flash-preview';
 
-function getAiKey() {
-  return localStorage.getItem("vp_ai_key") || DEFAULT_AI_KEY;
-}
+// ── 2. MÃ HÓA XOR ─────────────────────────────────────────────
+// Tạo key mới: encodeApiKey('AIzaSyXXX', 'ccmn2025') trong console
+const ENCODED_KEY = [34,42,23,15,97,73,113,114,20,44,63,12,120,124,89,4,11,14,95,54,88,115,113,71,80,45,94,27,64,118,120,108,41,17,4,1,113,89,10];
+const XOR_SECRET  = 'ccmn2025';
 
-function saveAiKey() {
-  const key = document.getElementById("ai-key-input").value.trim();
-  if (!key) { toast("⚠️ Nhập Groq API key (gsk_...)"); return; }
-  localStorage.setItem("vp_ai_key", key);
-  aiKeyReady = true;
-  toast("✅ Đã lưu Groq API key!");
-  updateAiKeyBar();
+function decodeApiKey(encoded, secret) {
+  return encoded.map((c,i) => String.fromCharCode(c ^ secret.charCodeAt(i % secret.length))).join('');
 }
+function encodeApiKey(plainKey, secret) {
+  const encoded = [...plainKey].map((c,i) => c.charCodeAt(0) ^ secret.charCodeAt(i % secret.length));
+  const decoded = encoded.map((c,i) => String.fromCharCode(c ^ secret.charCodeAt(i % secret.length))).join('');
+  console.log('Encoded:', JSON.stringify(encoded));
+  console.log('Verify :', decoded === plainKey ? 'OK' : 'MISMATCH');
+  return encoded;
+}
+function getApiKey() {
+  try { return localStorage.getItem('vp_ai_key') || decodeApiKey(ENCODED_KEY, XOR_SECRET); }
+  catch(e) { return decodeApiKey(ENCODED_KEY, XOR_SECRET); }
+}
+function saveApiKey(key) { try { localStorage.setItem('vp_ai_key', key); } catch(e) {} }
 
-function updateAiKeyBar() {
-  const key = getAiKey();
-  const bar = document.getElementById("ai-key-bar");
-  const inp = document.getElementById("ai-key-input");
-  if (key) {
-    bar.style.background = "#D1FAE5";
-    bar.style.borderBottomColor = "#6EE7B7";
-    inp.value = key.slice(0,8) + "••••••••";
-    inp.placeholder = "Key đã lưu";
-    aiKeyReady = true;
-  } else {
-    bar.style.background = "#FEF3C7";
-    bar.style.borderBottomColor = "#FDE68A";
-    inp.value = "";
-    inp.placeholder = "AIzaSy... (lấy miễn phí tại aistudio.google.com)";
-    aiKeyReady = false;
+// ── 3. EXTRACT TEXT — xử lý thinking model (3.x) ────────────
+function extractGeminiText(data) {
+  if (!data) return { ok: false, text: 'Response is null' };
+  if (data.error) return { ok: false, text: 'API Error: ' + (data.error.message || JSON.stringify(data.error)) };
+  if (!data.candidates || !data.candidates.length) {
+    if (data.promptFeedback) return { ok: false, text: 'Blocked: ' + JSON.stringify(data.promptFeedback) };
+    return { ok: false, text: 'No candidates returned' };
   }
+  const candidate = data.candidates[0];
+  if (!candidate.content || !candidate.content.parts)
+    return { ok: false, text: 'No content. finishReason=' + (candidate.finishReason || 'unknown') };
+  let textParts = candidate.content.parts.filter(p => p.text != null && !p.thought);
+  if (!textParts.length) textParts = candidate.content.parts.filter(p => p.text != null);
+  const text = textParts.map(p => p.text).join('');
+  return text ? { ok: true, text } : { ok: false, text: 'Parts have no text content' };
 }
 
-function toggleAI() {
-  const panel = document.getElementById("ai-panel");
-  const isOpen = panel.classList.toggle("open");
-  if (isOpen) {
-    updateAiKeyBar();
-    buildModelSelect();
-    fillSimilarSelect();
+// ── callGemini — non-streaming, ổn định ──────────────────────
+async function geminiCall(prompt, opts) {
+  opts = opts || {};
+  const apiKey       = opts.apiKey       || getApiKey();
+  const model        = opts.model        || currentModelId;
+  const systemPrompt = opts.systemPrompt || '';
+  const history      = opts.history      || [];
+  const maxTokens    = opts.maxTokens    || (model.includes('pro') ? 16384 : 8192);
+  const temperature  = opts.temperature  !== undefined ? opts.temperature : 0.1;
+
+  if (!apiKey) throw new Error('Chua co API key — nhap vao o trong panel AI');
+
+  const contents = [];
+  if (systemPrompt) {
+    contents.push({ role: 'user',  parts: [{ text: systemPrompt }] });
+    contents.push({ role: 'model', parts: [{ text: 'Understood. Ready.' }] });
   }
-}
-
-function switchAiTab(tab) {
-  ["parse","search","similar"].forEach(t => {
-    document.getElementById("tab-"+t).classList.toggle("active", t===tab);
-    document.getElementById("sec-"+t).classList.toggle("active", t===tab);
+  history.forEach(function(m) {
+    contents.push({ role: m.role === 'user' ? 'user' : 'model', parts: [{ text: m.text }] });
   });
-}
+  contents.push({ role: 'user', parts: [{ text: prompt }] });
 
-// ── Gemini API Call ────────────────────────────────────────
-// Extract JSON từ text (phòng khi model trả về text lẫn JSON)
-function extractJSON(text) {
-  // Thử parse thẳng trước
-  try { return JSON.parse(text.trim()); } catch {}
-  // Tìm JSON trong ```json ... ``` blocks
-  const fenceMatch = text.match(/```json\s*([\s\S]*?)```/);
-  if (fenceMatch) try { return JSON.parse(fenceMatch[1].trim()); } catch {}
-  // Tìm object {...} hoặc array [...] đầu tiên
-  const objMatch = text.match(/(\{[\s\S]*\})/);
-  if (objMatch) try { return JSON.parse(objMatch[1]); } catch {}
-  const arrMatch = text.match(/(\[[\s\S]*\])/);
-  if (arrMatch) try { return JSON.parse(arrMatch[1]); } catch {}
-  throw new Error("Không thể đọc kết quả AI — thử lại");
-}
-
-async function geminiCall(prompt) {
-  const key = getAiKey();
-  if (!key) throw new Error("Chưa có Gemini API key — nhập vào ô 🔑 phía trên");
-
-  const resp = await fetch(getGeminiURL() + "?key=" + key, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.1, maxOutputTokens: 1500 }
-    })
+  const url = GEMINI_ENDPOINT + model + ':generateContent?key=' + apiKey;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ contents: contents, generationConfig: { maxOutputTokens: maxTokens, temperature: temperature } })
   });
 
-  if (!resp.ok) {
-    const err = await resp.json().catch(()=>({}));
-    throw new Error(err.error?.message || "Gemini lỗi HTTP " + resp.status);
+  if (!response.ok) {
+    let msg = 'HTTP ' + response.status;
+    try { const e = await response.json(); msg = e.error && e.error.message ? e.error.message : msg; } catch(e) {}
+    throw new Error(msg);
   }
-  const data = await resp.json();
-  return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  const data = await response.json();
+  const result = extractGeminiText(data);
+  if (!result.ok) throw new Error(result.text);
+  return result.text;
 }
+
 
 function setThinking(id, show) {
   document.getElementById("think-"+id).classList.toggle("show", show);
@@ -1843,7 +1835,7 @@ function setThinking(id, show) {
 async function aiParse() {
   const raw = document.getElementById("ai-raw-input").value.trim();
   if (!raw) { toast("⚠️ Nhập thông tin cần phân tích"); return; }
-  if (!getAiKey()) { toast("⚠️ Cần nhập Gemini API key — bấm 'Lấy key miễn phí ↗' bên cạnh"); return; }
+  if (!getApiKey()) { toast("⚠️ Cần nhập Gemini API key — bấm 'Lấy key miễn phí ↗' bên cạnh"); return; }
 
   const btn = document.getElementById("btn-parse");
   btn.disabled = true;
@@ -2169,7 +2161,7 @@ function fillFormFromParsed(p) {
 async function aiSearch() {
   const req = document.getElementById("ai-req-input").value.trim();
   if (!req) { toast("⚠️ Nhập yêu cầu của khách"); return; }
-  if (!getAiKey()) { toast("⚠️ Cần nhập Gemini API key — bấm 'Lấy key miễn phí ↗' bên cạnh"); return; }
+  if (!getApiKey()) { toast("⚠️ Cần nhập Gemini API key — bấm 'Lấy key miễn phí ↗' bên cạnh"); return; }
 
   const btn = document.getElementById("btn-search");
   btn.disabled = true;
@@ -2273,7 +2265,7 @@ function fillCurrentRecord() {
 async function aiSimilar() {
   const baseId = document.getElementById("ai-base-select").value;
   if (!baseId) { toast("⚠️ Chọn căn gốc trước"); return; }
-  if (!getAiKey()) { toast("⚠️ Cần nhập Gemini API key — bấm 'Lấy key miễn phí ↗' bên cạnh"); return; }
+  if (!getApiKey()) { toast("⚠️ Cần nhập Gemini API key — bấm 'Lấy key miễn phí ↗' bên cạnh"); return; }
 
   const base = records.find(r => r.id === baseId);
   if (!base) return;
@@ -2466,7 +2458,7 @@ function updateModelBadge() {
   badge.textContent = m.badge;
   if (m.id.includes("pro-exp") || m.id.includes("3.1-pro")) {
     badge.style.cssText = "background:#EDE9FE;color:#6D28D9;font-size:10px;padding:2px 7px;border-radius:99px;font-weight:700;white-space:nowrap";
-  } else if (m.id === "gemini-2.0-flash") {
+  } else if (m.id === "gemini-2.5-flash") {
     badge.style.cssText = "background:#D1FAE5;color:#065F46;font-size:10px;padding:2px 7px;border-radius:99px;font-weight:700;white-space:nowrap";
   } else {
     badge.style.cssText = "background:#FDE68A;color:#92400E;font-size:10px;padding:2px 7px;border-radius:99px;font-weight:700;white-space:nowrap";
