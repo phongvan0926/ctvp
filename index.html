@@ -288,7 +288,7 @@ tbody td.wrap{white-space:normal;max-width:200px;}
 
 .ai-key-bar {
   background:#FEF3C7; border-bottom:1px solid #FDE68A;
-  padding:8px 14px; display:flex; align-items:center; gap:8px; flex-shrink:0;
+  padding:8px 14px; display:flex; align-items:flex-start; gap:8px; flex-shrink:0;
 }
 .ai-key-bar input {
   flex:1; border:1px solid #FCD34D; border-radius:6px; padding:5px 9px;
@@ -1730,7 +1730,19 @@ function doPrint() {
 // ══════════════════════════════════════════════════════════
 
 // ── AI Engine: Groq (miễn phí, 30 req/phút) ──────────────
-const GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
+const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/models/";
+
+const GEMINI_MODELS = [
+  { id: "gemini-2.0-flash",             label: "Gemini 3 Flash",         badge: "Mặc định · Nhanh · 1M ctx",       rpd: "Cao nhất" },
+  { id: "gemini-2.5-pro-exp-03-25",    label: "Gemini 3.1 Pro Preview",  badge: "Reasoning mạnh nhất · 64k", rpd: "50–100/ngày" },
+  { id: "gemini-2.5-flash-preview-05-20", label: "Gemini 2.5 Flash",     badge: "Ổn định · Free rộng",           rpd: "250/ngày" },
+  { id: "gemini-2.5-pro-preview-06-05",label: "Gemini 2.5 Pro",         badge: "Cân bằng chất lượng",        rpd: "100/ngày" },
+];
+
+let currentModelId = localStorage.getItem("vp_ai_model") || "gemini-2.0-flash";
+function getGeminiURL() {
+  return GEMINI_BASE + currentModelId + ":generateContent";
+}
 const DEFAULT_AI_KEY = "AIzaSyCGwORbJLk1hm2XjCCr3N3urFJYJrioCi8"; // Gemini 2.5 Flash
 let aiKeyReady = false;
 let _lastParsed = null; // lưu kết quả parse gần nhất
@@ -1772,6 +1784,7 @@ function toggleAI() {
   const isOpen = panel.classList.toggle("open");
   if (isOpen) {
     updateAiKeyBar();
+    buildModelSelect();
     fillSimilarSelect();
   }
 }
@@ -1803,7 +1816,7 @@ async function geminiCall(prompt) {
   const key = getAiKey();
   if (!key) throw new Error("Chưa có Gemini API key — nhập vào ô 🔑 phía trên");
 
-  const resp = await fetch(GEMINI_URL + "?key=" + key, {
+  const resp = await fetch(getGeminiURL() + "?key=" + key, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -2429,6 +2442,37 @@ function validateDuongAI(aiDuong) {
   return aiDuong;
 }
 
+// ── Model selector ───────────────────────────────────────
+function buildModelSelect() {
+  const sel = document.getElementById("ai-model-select");
+  if (!sel) return;
+  sel.innerHTML = GEMINI_MODELS.map(m =>
+    `<option value="${m.id}" ${m.id===currentModelId?"selected":""}>${m.label}  (${m.rpd})</option>`
+  ).join("");
+  updateModelBadge();
+}
+
+function changeModel(id) {
+  currentModelId = id;
+  localStorage.setItem("vp_ai_model", id);
+  updateModelBadge();
+  toast("🤖 Đã chọn: " + GEMINI_MODELS.find(m=>m.id===id)?.label);
+}
+
+function updateModelBadge() {
+  const m = GEMINI_MODELS.find(x => x.id === currentModelId) || GEMINI_MODELS[0];
+  const badge = document.getElementById("ai-model-badge");
+  if (!badge) return;
+  badge.textContent = m.badge;
+  if (m.id.includes("pro-exp") || m.id.includes("3.1-pro")) {
+    badge.style.cssText = "background:#EDE9FE;color:#6D28D9;font-size:10px;padding:2px 7px;border-radius:99px;font-weight:700;white-space:nowrap";
+  } else if (m.id === "gemini-2.0-flash") {
+    badge.style.cssText = "background:#D1FAE5;color:#065F46;font-size:10px;padding:2px 7px;border-radius:99px;font-weight:700;white-space:nowrap";
+  } else {
+    badge.style.cssText = "background:#FDE68A;color:#92400E;font-size:10px;padding:2px 7px;border-radius:99px;font-weight:700;white-space:nowrap";
+  }
+}
+
 // START
 init();
 </script>
@@ -2449,12 +2493,25 @@ init();
     <button class="ai-ph-close" onclick="toggleAI()">✕</button>
   </div>
 
-  <!-- AI Key bar -->
+  <!-- AI Config bar -->
   <div class="ai-key-bar" id="ai-key-bar">
-    <span class="ai-key-bar-lbl">🔑 Gemini API Key</span>
-    <input type="password" id="ai-key-input" placeholder="AIzaSy...">
-    <button class="ai-key-save" onclick="saveAiKey()">Lưu</button>
-    <span class="ai-key-link" onclick="window.open('https://aistudio.google.com/app/apikey','_blank')">Lấy key miễn phí ↗</span>
+    <div style="display:flex;flex-direction:column;gap:6px;width:100%">
+      <!-- Row 1: Model selector -->
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="ai-key-bar-lbl">🤖 Mô hình</span>
+        <select id="ai-model-select" onchange="changeModel(this.value)"
+          style="flex:1;padding:4px 8px;border:1px solid #FCD34D;border-radius:6px;font-size:12px;font-family:inherit;background:#fff;color:#92400E;font-weight:600">
+        </select>
+        <span id="ai-model-badge" style="font-size:10px;padding:2px 7px;border-radius:99px;background:#FDE68A;color:#92400E;white-space:nowrap;font-weight:700"></span>
+      </div>
+      <!-- Row 2: API key -->
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="ai-key-bar-lbl">🔑 API Key</span>
+        <input type="password" id="ai-key-input" placeholder="AIzaSy..." style="flex:1">
+        <button class="ai-key-save" onclick="saveAiKey()">Lưu</button>
+        <span class="ai-key-link" onclick="window.open('https://aistudio.google.com/app/apikey','_blank')">Lấy key ↗</span>
+      </div>
+    </div>
   </div>
 
   <!-- Tabs -->
