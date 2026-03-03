@@ -1744,7 +1744,7 @@ const GEMINI_MODELS = [
   { id: 'gemini-2.5-pro',         label: '2.5 Pro',         badge: 'Cân bằng chất lượng/tốc độ', rpd: '100/ngày',    free: true  },
 ];
 
-let currentModelId = localStorage.getItem('vp_ai_model') || 'gemini-3-flash-preview';
+let currentModelId = localStorage.getItem('vp_ai_model') || 'gemini-2.5-flash';
 let aiKeyReady = false;
 
 // ── 2. MÃ HÓA XOR ─────────────────────────────────────────────
@@ -1825,6 +1825,24 @@ async function geminiCall(prompt, opts) {
   return result.text;
 }
 
+
+
+// Extract JSON from AI response text (handle markdown fences, plain text wrapping)
+function extractJSON(text) {
+  if (!text) throw new Error('AI tra ve ket qua rong');
+  // Try direct parse
+  try { return JSON.parse(text.trim()); } catch(e) {}
+  // Try ```json ... ``` block
+  var fence = text.match(/```json\s*([\s\S]*?)```/);
+  if (fence) { try { return JSON.parse(fence[1].trim()); } catch(e) {} }
+  // Try first { ... } object
+  var obj = text.match(/(\{[\s\S]*\})/);
+  if (obj) { try { return JSON.parse(obj[1]); } catch(e) {} }
+  // Try first [ ... ] array
+  var arr = text.match(/(\[[\s\S]*\])/);
+  if (arr) { try { return JSON.parse(arr[1]); } catch(e) {} }
+  throw new Error('Khong the doc ket qua AI — thu lai');
+}
 
 function setThinking(id, show) {
   document.getElementById("think-"+id).classList.toggle("show", show);
